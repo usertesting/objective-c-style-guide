@@ -1,187 +1,1139 @@
-These guidelines build on Apple's existing [Coding Guidelines for Cocoa](https://developer.apple.com/library/mac/#documentation/Cocoa/Conceptual/CodingGuidelines/CodingGuidelines.html).
-Unless explicitly contradicted below, assume that all of Apple's guidelines apply as well.
+# Raizlabs Objective-C Style Guide
+
+This guide outlines the coding conventions and best practices for the Objective-C developers at UserTesting.
+
+<!-- START doctoc generated TOC please keep comment here to allow auto update -->
+<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
+**Table of Contents**  *generated with [DocToc](http://doctoc.herokuapp.com/)*
+
+- [Dot Syntax](#dot-syntax)
+- [Whitespace](#whitespace)
+  - [Newlines](#newlines)
+  - [Indentation](#indentation)
+- [Naming](#naming)
+  - [Variables](#variables)
+  - [Properties](#properties)
+  - [Instance Variables](#instance-variables)
+  - [Constants](#constants)
+- [Variables](#variables-1)
+- [Properties](#properties-1)
+- [Conditionals](#conditionals)
+- [Mathematical operators](#mathematical-operators)
+- [`CGFloat`](#cgfloat)
+- [Switch statements](#switch-statements)
+- [Comments](#comments)
+- [Method Signatures](#method-signatures)
+- [Return statements](#return-statements)
+- [Protocols](#protocols)
+- [Blocks](#blocks)
+  - [Naming](#naming-1)
+  - [Spacing](#spacing)
+  - [Block Parameters](#block-parameters)
+- [Constants](#constants-1)
+  - [User-Facing Strings](#user-facing-strings)
+  - [Other string constants (non-user-facing)](#other-string-constants-non-user-facing)
+  - [Magic Strings](#magic-strings)
+  - [Numbers](#numbers)
+  - [Structs](#structs)
+- [Enumerations](#enumerations)
+- [Initializers](#initializers)
+- [Singletons](#singletons)
+- [Error handling](#error-handling)
+  - [Out Errors (`NSError **`)](#out-errors-nserror-)
+- [Literals](#literals)
+- [Rule of three](#rule-of-three)
+  - [Protocol Conformation](#protocol-conformation)
+  - [Method calls/signatures](#method-callssignatures)
+- [Unnecessary code](#unnecessary-code)
+- [File Organization](#file-organization)
+  - [Header Files (`.h`)](#header-files-h)
+    - [When to use a `_Private.h` file](#when-to-use-a-_privateh-file)
+  - [Implementation Files (`.m`)](#implementation-files-m)
+
+<!-- END doctoc generated TOC please keep comment here to allow auto update -->
+
+## Dot Syntax
+
+Use dot notation for all property access and manipulation. The basic concept of dot syntax is for access to instance variables (or things like them) without side effects. It is misleading to call zero-argument methods with dot syntax. **Never** access `_ivars` directly when a property has been declared, except where required:
+
+**Preferred:**
+
+```objc
+self.foo = 4;
+int bar = self.foo;
+```
+
+**Not:**
+
+```objc
+[self setFoo:4];
+int bar = [self foo];
+_bar = 4;
+```
+
+For clarity, you may use bracket notation for overridden setters/getters:
+
+```objc
+- (void)setFoo:(int)foo {
+    // some extra code goes here
+
+    _foo = foo;
+}
+
+- (int)foo {
+    // some extra code goes here
+
+    return _foo;
+}
+
+- (void)aMethod {
+    [self setFoo:4];
+    int test = [self foo];
+}
+```
+
+**Never** use dot notation on a non-[idempotent](http://en.wikipedia.org/wiki/Idempotent) property or method. For example, `count` isn't actually a property on `NSArray`; the compiler just infers because there's a method called count. However, it *is* an idempotent method, so it is safe to use dot-notation:
+
+```objc
+NSUInteger foo = myArray.count;
+```
+
+Avoid non-idempotent setters
+
+**Bad:**
+
+```objc
+- (void)setFoo:(id)foo {
+    _foo = foo;
+    _lastTimeFooWasSet = [NSDate date];
+   [self.tableView reloadData];
+}
+```
+
+**Better:**
+
+```objc
+- (void)updateFoo:(id)foo refresh:(BOOL)refresh {
+    self.foo = foo;
+    if ( refresh ) {
+        _lastTimeFooWasSet = [NSDate date];
+        [self.tableView reloadData];
+    }
+}
+```
+
+This is not to say that you shouln't override setters; you just need to be careful that the side effects are obvious, and with low potential danger. Better yet, create a semantically more obvious method name, and make the parameter read-only. 
 
 ## Whitespace
 
- * Tabs, not spaces.
- * End files with a newline.
- * Make liberal use of vertical whitespace to divide code into logical chunks.
- * Don’t leave trailing whitespace.
-    * Not even leading indentation on blank lines.
+### Newlines
 
-## Documentation and Organization
-
- * All method declarations should be documented.
- * Comments should be hard-wrapped at 80 characters.
- * Comments should be [Tomdoc](http://tomdoc.org/)-style.
- * Document whether object parameters allow `nil` as a value.
- * Use `#pragma mark`s to categorize methods into functional groupings and protocol implementations, following this general structure:
+- Never more than one consecutive newline of whitespace
+- Use one newline of whitespace to group conceptually distinct parts of methods.
 
 ```objc
-#pragma mark Properties
+- (void)viewDidLoad {
+    // set up foo object
+    UIFoo *foo = [[UIFoo alloc] init];
+    foo.property = value;
 
-@dynamic someProperty;
-
-- (void)setCustomProperty:(id)value {}
-
-#pragma mark Lifecycle
-
-+ (instancetype)objectWithThing:(id)thing {}
-- (instancetype)init {}
-
-#pragma mark Drawing
-
-- (void)drawRect:(CGRect) {}
-
-#pragma mark Another functional grouping
-
-#pragma mark GHSuperclass
-
-- (void)someOverriddenMethod {}
-
-#pragma mark NSCopying
-
-- (id)copyWithZone:(NSZone *)zone {}
-
-#pragma mark NSObject
-
-- (NSString *)description {}
-```
-
-## Declarations
-
- * Never declare an ivar unless you need to change its type from its declared property.
- * Don’t use line breaks in method declarations.
- * Prefer exposing an immutable type for a property if it being mutable is an implementation detail. This is a valid reason to declare an ivar for a property.
- * Always declare memory-management semantics even on `readonly` properties.
- * Declare properties `readonly` if they are only set once in `-init`.
- * Don't use `@synthesize` unless the compiler requires it. Note that optional properties in protocols must be explicitly synthesized in order to exist.
- * Declare properties `copy` if they return immutable objects and aren't ever mutated in the implementation. `strong` should only be used when exposing a mutable object, or an object that does not conform to `<NSCopying>`.
- * Avoid `weak` properties whenever possible. A long-lived weak reference is usually a code smell that should be refactored out.
- * Instance variables should be prefixed with an underscore (just like when implicitly synthesized).
- * Don't put a space between an object type and the protocol it conforms to.
-
-```objc
-@property (attributes) id<Protocol> object;
-@property (nonatomic, strong) NSObject<Protocol> *object;
-```
-
- * C function declarations should have no space before the opening parenthesis, and should be namespaced just like a class.
-
-```objc
-void GHAwesomeFunction(BOOL hasSomeArgs);
-```
-
- * Constructors should generally return [`instancetype`](http://clang.llvm.org/docs/LanguageExtensions.html#related-result-types) rather than `id`.
- * Prefer C99 struct initialiser syntax to helper functions (such as `CGRectMake()`).
-
-```objc
-  CGRect rect = { .origin.x = 3.0, .origin.y = 12.0, .size.width = 15.0, .size.height = 80.0 };
-   ```
-
-## Expressions
-
- * Don't access an ivar unless you're in `-init`, `-dealloc` or a custom accessor.
- * Use dot-syntax when invoking idempotent methods, including setters and class methods (like `NSFileManager.defaultManager`).
- * Use object literals, boxed expressions, and subscripting over the older, grosser alternatives.
- * Comparisons should be explicit for everything except `BOOL`s.
- * Prefer positive comparisons to negative.
- * Long form ternary operators should be wrapped in parentheses and only used for assignment and arguments.
-
-```objc
-Blah *a = (stuff == thing ? foo : bar);
-```
-
-* Short form, `nil` coalescing ternary operators should avoid parentheses.
-
-```objc
-Blah *b = thingThatCouldBeNil ?: defaultValue;
-```
-
- * Separate binary operands with a single space, but unary operands and casts with none:
-
-```c
-void *ptr = &value + 10 * 3;
-NewType a = (NewType)b;
-
-for (int i = 0; i < 10; i++) {
-    doCoolThings();
+    // set up bar object
+    UIBar *bar = [[UIBar alloc] initWithThing:foo];
 }
 ```
 
-## Control Structures
+### Indentation
 
- * Always surround `if` bodies with curly braces if there is an `else`. Single-line `if` bodies without an `else` should be on the same line as the `if`.
- * All curly braces should begin on the same line as their associated statement. They should end on a new line.
- * Put a single space after keywords and before their parentheses.
- * Return and break early.
- * No spaces between parentheses and their contents.
+- Always use 4 spaces, never tabs. (In Xcode, go to **Preferences** → **Text Editing** → **Indentation** to set this.)
+
+## Naming
+
+### Variables
+
+Variables always use camel case:
 
 ```objc
-if (somethingIsBad) return;
+likeThis;
+```
 
-if (something == nil) {
-	// do stuff
+Variables of type `Class` start with a capital letter. Note that a variable of type `Class` should use `Nil`, not `nil`, to express emptiness:
+
+```objc
+Class SomeClassVariable = Nil;
+SomeClassVariable = [MyClass class];
+```
+
+### Properties
+
+Classes conceptually 'scope' properties, so do not prefix property names with redundant descriptors such as the class name when there is no ambiguity. 
+
+**Preferred:**
+
+```objc
+@property (strong, nonatomic) UICollectionView *collectionView;
+```
+
+**Not:**
+```objc
+@property (strong, nonatomic) UICollectionView *myClassCollectionView;
+```
+
+If ambiguity becomes possible - e.g., your class adds a second collection view - rename both to make them distinct. 
+
+```objc
+@property (strong, nonatomic) UICollectionView *topCollectionView;
+@property (strong, nonatomic) UICollectionView *bottomCollectionView;
+```
+
+**Not:**
+```objc
+@property (strong, nonatomic) UICollectionView *collectionView;
+@property (strong, nonatomic) UICollectionView *collectionView2;
+```
+
+### Instance Variables
+
+Instance variables begin with an underscore and rename the variable to `_propertyName`.
+
+```objc
+@synthesize ivarName = _ivarName;
+```
+
+However, the use of explicitly declared or synthesized instance variables is discouraged except where required.
+
+### Constants
+
+Constants are camel-case, and should use the following format:
+
+- lowercase `k` prefix
+- followed by class or other scoping name, including a prefix is the constant or enum is used widely
+- followed by descriptor
+
+```objc
+// [k][uniquing name][constant name]
+static const NSInteger kUTMaximumTestAvailabilityDistance = 1000;
+```
+
+See also: [Cocoa naming conventions for variables and types](https://developer.apple.com/library/mac/documentation/cocoa/conceptual/codingguidelines/articles/namingivarsandtypes.html).
+
+## Variables
+
+Asterisks indicating pointers belong with the variable, except in the case of [constants](#constants):
+
+**Preferred:**
+
+```objc
+NSString *text;
+```
+
+**Not:**
+
+```objc
+NSString* text;
+NSString * text
+```
+
+Always use `@property`-declared variables instead of instance variables (except for where you have to).
+
+**Preferred:**
+
+```objc
+@interface Tutorial : NSObject
+
+@property (copy, nonatomic) NSString *tutorialName;
+
+@end
+```
+
+**Not:**
+
+```objc
+@interface Tutorial : NSObject
+{
+    NSString *tutorialName;
+}
+```
+
+Instance variables are required in the following case:
+
+> Subclasses don't have visibility into auto-synthesized properties defined on ancestor classes. Redefining the property requires duplicating the property semantics, which might change. Declaring the instance variable is actually correct in this case. If you want to hide it, mark it `@private` or use a private header.
+
+## Properties
+
+- Spaces between `@property`, specifiers, and property type
+- Asterisk sticks to property name
+- Specifier order:
+- Always fully specify property attributes. 
+
+ 1. Retain strength: `strong`, `weak`, `assign`, `copy`
+ 2. Atomicity `nonatomic`, `atomic`
+ 3. Readability `readwrite`, `readonly`
+ 4. Custom getter
+ 5. Custom setter
+
+**Preferred:**
+
+```objc
+@property (strong, nonatomic, readwrite) NSObject *someObject;
+```
+
+**Not:**
+
+```objc
+@property (nonatomic, strong) NSObject *someObject;
+@property (strong, nonatomic) NSObject* someObject;
+@property (strong, nonatomic) NSObject * someObject;
+@property(strong) NSObject *someObject;
+@property(strong, nonatomic)NSObject *someObject;
+```
+
+## Conditionals
+
+- **NEVER** forgo the braces for one-line if statements ([#gotofail](https://www.imperialviolet.org/2014/02/22/applebug.html) anyone?)
+- No spaces between the control keyword and opening/closing parentheses
+- Opening brace same line as predicate, separated by one space
+- Continuing keywords (`else if`/`else`) on same line as closing brace
+- All keywords and closing braces are flush left and code within braces are indented a standard indentation width.
+
+**Preferred:**
+
+```objc
+if (expression) {
+    // if code
+} else if (other expression) {
+    // else if code
 } else {
-	// do other stuff
+    // else code
 }
 ```
 
-## Exceptions and Error Handling
+**Not:**
 
- * Don't use exceptions for flow control.
- * Use exceptions only to indicate programmer error.
- * To indicate errors, use an `NSError **` argument or send an error on a [ReactiveCocoa](https://github.com/ReactiveCocoa/ReactiveCocoa) signal.
+```objc
+if ( expression )
+{ // shouldn't be on next line
+    // if code
+} else if ( expression )  
+{ // shouldn't be on next line
+    // else if code
+}
+else
+    // else code // NEVER forgo braces
+```
+
+## Mathematical operators
+
+Unary operators stick to the number they modify:
+
+```objc
+int x = -10;
+NSNumber *y = @(x * -3);
+```
+
+Use spaces between all binary and ternary mathematical operators. Fully parenthesize mathematical expressions and any logical expression with 1+ operator:
+
+```objc
+int x = ((1 + 1) / 1);
+```
+
+Ternary conditional tests must be enclosed in parens:
+
+```objc
+CGFloat result = (x > 2) ? someValue : otherValue;
+```
+
+Non-conditionals do not need parens:
+
+```objc
+CGFloat result = self.isLoading ? someValue : otherValue;
+```
+
+No nesting of ternary expressions.
+
+- Don't even think about it.
+
+```objc
+BOOL dontDoThis = self.otherBOOL ? ((self.dont) ? self.do : self.this) : self.please;
+```
+
+## `CGFloat`
+
+- `CGFloat` is defined as `double` in 64-bit architecture and `float` in 32-bit
+- Always trail with an `f` when sending a float literal to a `CGFloat` parameter
+- Do not use `x.f` when there is no decimal value. Instead, use `x.0f`
+    - Although `x.f` compiles perfectly fine, it is unclear (especially for our clients who may not be used to this abstract notation)
+
+**Preferred:**
+```objc
+CGSizeMake(2.0f, 2.0f);
+```
+
+## Switch statements
+
+-  Braces should be on same line as `case`
+-  If a case has more than one line of code (other than the break), surround that case's body with braces
+-  No spaces inside parentheses, just like conditional statements
+
+```objc
+switch (expression) {
+    case 1:
+        // code
+        break;
+    case 2: {
+        // code
+        // code
+        break;
+    }
+
+    default:
+        // default code
+        break;
+}
+```
+
+We strongly encourage you to put fallthroughs at the **end** of the statement:
+
+```objc
+switch ( expression ) {
+    case 1: {
+        // case 1 code
+        break;
+    }
+    case 2: // fall-through
+    case 3:
+        // code executed for values 2 and 3
+        break;
+    default:
+        // default code
+        break;
+}
+```
+
+Do not use a default if there isn't any handling for the default case:
+
+**Preferred:**
+
+```objc
+switch ( expression ) {
+    case 1: {
+        // case 1 code
+        break;
+    }
+    default: {
+        // default code
+        // more default code
+        break;
+    }
+}
+```
+
+**Not:**
+
+```objc
+switch ( expression ) {
+    case 1: {
+        // case 1 code
+        break;
+    }
+    default: // nothing here, no need for default!
+        break;
+}
+```
+## Comments
+
+- Comment whenever you are mitigating an OS bug (including the OS revision and when it might be able to be removed, if you know)
+- Comment whenever you write code that might appear weird or intimidating to a new developer
+- In general, comment any surprising code
+- Don’t comment trivial code where the meaning should be inferred from good variable and method naming
+- Never use your name in comments or code
+    - It isn't a good idea to send that info to clients
+    - It isn't necessary, beacuse of `git blame`
+- Never commit commented-out code. This is what version tracking systems are for.  
+
+- Never reference bug numbers from another bug tracker (Jira, Github) in code
+
+- Use double slash comments (`//`)
+
+    - One space always immediately after slashes
+
+    - In general, put comments on the line before the code being explained. One newline should come before the comment and after the code fragment being explained to avoid confusion with following code unrelated to comment:
+
+```objc
+...preceding code...
+...preceding code...
+
+// Explanatory comment
+...code being explained...
+
+...other code unrelated to comment...
+...other code unrelated to comment...
+```
+
+- You _may_ comment "trivial" code if it aids readability in some way (eg. visually distinguishing multiple tasks in a long method), but this should be warranted by complexity and not just as a matter of course.
+- You _may_ comment in-line where appropriate. Eg. to identify the closing brace of a nested code block.
+
+    - Special comment identifiers
+
+        - `// !!!:`
+
+            - Use to comment code that mitigates OS bugs, code that could in the future be eliminated or changed when something out of our control is fixed
+
+        - `// ???:`
+
+            - Do not use (?)
+
+        - `// TODO:`
+
+            - Use when code is committed but is intentionally left incomplete, i.e. empty method bodies whose implementation is part of another sprint-planned issue
+
+- `/* */`
+
+    - Very long comments (3 lines or more; see [Rule of Threes](#rule-of-three))
+
+- `/** */` Documentation Comments
+
+    - Documentation comments give semantic and contextual meaning to our APIs
+
+    - These are required for open-source frameworks, but can also be useful to document internal code, especially core components of an app, like common API and data classes
+
+    - Can be parsed by [AppleDoc](http://gentlebytes.com/appledoc/) to create documentation file from code
+
+    - Use `///` *only* for 1-line documentation comments
+
+## Method Signatures
+
+- One space between scope symbol (`-`, `+`) and return type
+- One space between types and asterisks
+- Descriptive names for parameter names
+- A pre-colon identifier must be present for each parameter
+- A type must be present for each identifier
+- Don't use `and` or `or` for parameter names.
+- Block parameters should always be last
+- Typedef blocks whenever possible
+
+**Preferred:**
+
+```objc
+- (NSObject *)methodNameWithParam:(NSObject *)param otherParam:(NSObject *)otherParam;
+```
+
+**Not:**
+
+```objc
+- (NSObject *)methodNameWithParam:(NSObject *)param andOtherParam:(NSObject *)otherParam;
+-(void)setT:(NSString *)text i:(UIImage *)image;
+- (void)sendAction:(SEL)aSelector :(id)anObject :(BOOL)flag; // Never do this
+- (id)taggedView:(NSInteger)tag;
+- (instancetype)initWithWidth:(CGFloat)width andHeight:(CGFloat)height;
+- (instancetype)initWith:(int)width and:(int)height; // Never do this.
+```
+
+Colon-align long method signatures judiciously:
+
+```objc
+- (id)initWithTableView:(UITableView *)tableView
+         collectionList:(id<CollectionList>)collectionList visitor:(id<ListVisitor>)visitor
+               delegate:(id<CollectionListTableViewDataSourceDelegate>)delegate
+```
+
+Lines need not be broken after every parameter, as in the example above.
+
+**Not**
+```objc
+- (void)align:(BOOL)this
+veryVeryVeryVeryLong:(BOOL)method
+signatureThatIsStillNotAsLongAsManyTotallyLegitimateCocoa:(BOOL)methods
+```
+
+See also: [Cocoa naming conventions for methods](https://developer.apple.com/library/mac/documentation/cocoa/conceptual/codingguidelines/Articles/NamingMethods.html).
+
+## Return statements
+
+Using return to bail out of a method if it reduces nested complexity is sometimes a great idea. 
+
+**Preferred:**
+
+```objc
+- (int)foo {
+    switch ( self.bar ) {
+        case 0:
+            return 12;
+        case 1:
+            return 42;
+        default:
+            return 0;
+    }
+}
+```
+
+**Not:**
+
+```objc
+- (int)foo {
+    int ret = 0;
+    
+    // code to modify "ret"
+    switch ( self.bar ) {
+        case 0: {
+            ret = 12;
+            break;
+        }
+        case 1: {
+            ret = 42;
+            break;
+        }
+        default:
+            // handle default case
+            ret = 11;
+            break;
+        }
+    }
+
+    return ret;
+}
+```
+
+That said, early returns are better at the beginning of a method, when you need to bail quickly:
+
+```objc
+- (id)doSomething {
+    if ( doingSomething ) {
+        return nil;
+    }
+
+    // do awesome things
+    return awesomeThing;
+}
+```
+
+## Protocols
+
+- Protocol name should be of the format [`class prefix`][`class name`][`protocol function`]
+- Forward protocol declaration appears before `@interface` definition; protocol definition comes after.
+- The delegate property in the interface should be `weak`.
+- `@required` and `@optional` only need be present if both types of methods exist. If they are both omitted, every method is required by default.
+
+**Preferred:**
+
+```objc
+@protocol SomeClassDelegate;
+
+@interface SomeClass : NSObject
+
+@property (weak, nonatomic) id <SomeClassDelegate> delegate;
+
+@end
+
+@protocol SomeClassDelegate <NSObject>
+
+@required
+
+// required methods
+
+@optional
+
+// optional methods
+
+@end
+```
+
+**Not:**
+
+```objc
+@protocol SomeClassDelegate <NSObject>
+
+@required
+
+// required methods
+
+@optional
+
+// optional methods
+
+@end
+
+@interface SomeClass : NSObject
+
+@property (weak, nonatomic) id <SomeClassDelegate> delegate;
+
+@end
+```
 
 ## Blocks
 
- * Blocks should have a space between their return type and name.
- * Block definitions should omit their return type when possible.
- * Block definitions should omit their arguments if they are `void`.
- * Parameters in block types should be named unless the block is initialized immediately.
+If you can do it with with a completion block, don't use a protocol.
+
+### Naming
+
+- `typedef` blocks that are specific to a class or function
+- `typedef`ed names should follow the [constant naming protocol](#naming)
 
 ```objc
-void (^blockName1)(void) = ^{
-    // do some things
+// some .h file
+typedef void (^CompletionBlock)(BOOL succeeded, NSError *error);
+```
+
+Do not use a newline before the opening curly brace.
+
+**Preferred:**
+
+```objc
+[UIView animateWithDuration:0.2 animations:^{
+    // animation code
+} completion:nil];
+```
+
+**Not:**
+
+```objc
+[UIView animateWithDuration:0.2
+                animations:^
+                {
+                    // animation code
+                } completion:nil];
+```
+
+### Spacing
+
+When the block takes parameters, put a space between the closing parenthesis and the the opening curly brace:
+
+```objc
+[self.thing enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
+    // code
+}];
+```
+
+When the block takes **no** parameters, do not put a space between  the `^` and the `{`:
+
+```objc
+[UIView animateWithDuration:9.41 animations:^{
+    // code
+}];
+```
+
+### Block Parameters
+When you don’t want to pass a block to a parameter, use `nil`, not `NULL`. This is because blocks are Objective-C objects, and because you may want to send messages such as `-copy` to them even if they are `nil`.
+
+```objc
+[self presentViewController:aViewController
+                   animated:YES
+                 completion:nil];
+```
+
+## Constants
+
+### User-Facing Strings
+
+User-facing strings that are not reused can be defined inline; there is no need to create constants for them at the top of the file. 
+
+Localize only once necessary.
+
+### Other string constants (non-user-facing)
+
+- Do not use `#define`
+    - FYI: **When you #define a constant, it's defined in every other file the compiler looks at until (if) it's `#undef`ed. It could also be redefined at any time.**
+
+- **Always** use static or extern string constants
+- use `OBJC_EXTERN` instead of `extern`
+- use reverse-domain syntax with the domain of the project for internal (non-user-facing and non-api-facing) string constants
+
+**Preferred:**
+
+```objc
+static NSString* const kLoginUsername = @"com.raizlabs.login.username";
+```
+
+If you want to make it **public**, put this in the `.h` file:
+
+```objc
+OBJC_EXTERN NSString* const kLoginUsername;
+```
+
+And in the `.m`:
+
+```objc
+NSString* const kLoginUsername = @"com.raizlabs.login.username";
+```
+
+### Magic Strings
+
+Who doesn't love magic? Seriously, if a string is going to be used only once, or only in one context, define it in that context rather than polluting class-wide context with a constant. 
+
+**This is preferred:**
+```objc
+- (void)someMethod {
+    NSString *message = @"Error, you broke the app!";
+}
+```
+
+**Not this:**
+```objc
+static NSString* const kErrorMessage = @"Error, you broke the app!";
+
+// . . . . 150 lines later. . . . 
+
+- (void)someMethod {
+    NSString *message = kErrorMessage;
+}
+```
+
+### Numbers
+
+- Do not use `#define`
+- Use static or extern number constants
+    - This hides the actual value from public interfaces, so programmers are more likely to use the constant instead of copying the value
+
+**Preferred:**
+
+```objc
+// .m file
+const int intName = 4;
+
+// .h file
+OBJC_EXTERN const int intName;
+```
+
+**Always** make internal, private constants `static`.
+
+**Preferred:**
+
+```objc
+// .h file
+// This space intentionally left blank
+
+// .m file
+static const CGFloat buttonHeight = 44.0f;
+
+```
+
+Magic numbers are encouraged with the same rationale as 'magic' strings: reduce scope pollution.
+
+### Structs
+
+If you need a constant struct, use the [designated intializer syntax](https://gcc.gnu.org/onlinedocs/gcc/Designated-Inits.html):
+
+```objc
+static const CGSize kTestViewControllerShadowOffset = { .width = 0.0f, .height = 3.0f };
+```
+
+## Enumerations
+
+- **Always** use `NS_ENUM` (see [this NSHipster post](http://nshipster.com/ns_enum-ns_options/))
+- Always define the numeric value of the first item
+
+**Preferred:**
+
+```objc
+typedef NS_ENUM(NSInteger, Foo) {
+    FooBlue = 0,
+    FooRed,
+    FooGreen
+};
+```
+
+**Not:**
+
+```objc
+typedef enum
+{
+    FooBlue,
+    FooRed
+    Green
+}Foo;
+
+enum
+{
+    FooBlue,
+    FooRed
+    Green
 };
 
-id (^blockName2)(id) = ^ id (id args) {
-    // do some things
+```
+
+- The name of the type should act as a prefix for the subtypes
+
+- It is common to use an "Unknown" type. If present, it should always be the first item in the enum.
+
+**Example:**
+
+```objc
+typedef NS_ENUM(NSInteger, Foo) {
+    FooUnknown = -1,
+    FooBlue,
+    FooRed
 };
+```
+
+If you want to accept multiple sub-values, use a bitmask
+    - Always use an **unsigned integer** for bitmasks
+
+Add an "All"-suffixed subtype when applicable
+
+**Example:**
+
+```objc
+typedef NS_OPTIONS(NSUInteger, Foo) {
+    FooUnknown,
+    FooBlue,
+    FooRed,
+    FooGreen,
+    FooAll
+};
+```
+
+## Initializers
+
+- Return `instacetype`, not `id`.
+- Use `[[[self class] alloc] init]` when instantiating an object of same type as `self`, so that subclasses that call these methods will get back an object of the correct class.
+
+**Preferred:**
+
+```objc
+- (instancetype)init;
+```
+
+**Not:**
+
+```objc
+- (id)init;
+```
+
+## Singletons
+
+Singleton objects should use a thread-safe GCD pattern for creating their shared instance:
+
+```objc
++ (instancetype)sharedInstance {
+    static id sharedInstance = nil;
+
+    static dispatch_once_t oncetoken;
+    dispatch_once(&onceToken, ^{
+        sharedInstance = [[[self class] alloc] init];
+    });
+
+   return sharedInstance;
+}
+```
+
+## Error handling
+
+**Always** handle errors and return values
+
+- check `BOOL` or object return value before checking the error inout parameter
+
+- The parameters of completion blocks should include a success `BOOL` when applicable (e.g. web service calls). Test against this `BOOL`, not the `error` object, to determine whether the operation was successful
+- It is **never** safe to assume that a method will return a valid error object without first checking the return value, especially when using Apple APIs.
+
+**Preferred:**
+
+```objc
+- (void)doSomething {
+    [someObject doSomethingWithCompletion:^(BOOL success, NSError *error) {
+        if ( success ) {
+            // Handle success
+        } else if ( error ) {
+            // Handle error with an error object returned
+        } else {
+            // Handle error without an error object
+        }
+    }];
+}
+```
+
+**Not:**
+
+```objc
+- (void)doSomething {
+    [someObject doSomethingWithCompletion:^(BOOL success, NSError *error) {
+        if ( error ) {
+            // Handle error
+        } else {
+            // Assume success
+        }
+    }];
+}
+```
+
+Name error pointers something more specific than `error` when there are nested/multiple calls that return errors in the scope of a method
+
+**For example:**
+
+```objc
+// Ignoring above advice about checking return value
+// for the sake of a concise example.
+- (void)doColor {
+    [self blueWithError:^(NSError *blueError) {
+            if (blueError) {
+                // handle blueError
+            }
+
+            [self redWithError:^(NSError *redError) {
+                if (redError) {
+                    // handle redError
+                }
+            }];
+        }];
+
+    [self yellowWithError:^(NSError *yellowError) {
+        if (yellowError) {
+            // handle yellowError
+        }
+    }];
+}
+```
+
+### Out Errors (`NSError **`)
+
+- Methods that return errors should return an object or a `BOOL` indicating success
+- Always name `NSError` double pointers `outError`:
+
+```objc
+- (BOOL)doActionReturningError:(NSError **)outError;
+- (BOOL)doActionWithThing:(NSObject *)thing error:(NSError **)outError;
 ```
 
 ## Literals
 
- * Avoid making numbers a specific type unless necessary (for example, prefer `5` to `5.0`, and `5.3` to `5.3f`).
- * The contents of array and dictionary literals should have a space on both sides.
- * Dictionary literals should have no space between the key and the colon, and a single space between colon and value.
+Use [Objective-C literals](http://clang.llvm.org/docs/ObjectiveCLiterals.html) wherever possible.
 
-``` objc
-NSArray *theStuff = @[ @1, @2, @3 ];
+**Preferred:**
 
-NSDictionary *keyedStuff = @{ GHDidCreateStyleGuide: @YES };
+```objc
+NSArray *foo = @[object, object, object];
 ```
 
- * Longer or more complex literals should be split over multiple lines (optionally with a terminating comma):
+**Not:**
 
-``` objc
-NSArray *theStuff = @[
-    @"Got some long string objects in here.",
-    [AndSomeModelObjects too],
-    @"Moar strings."
-];
+```objc
+NSArray *array = [[NSArray alloc] initWithObjects:@"foo", @"bar", nil];
 
-NSDictionary *keyedStuff = @{
-    @"this.key": @"corresponds to this value",
-    @"otherKey": @"remoteData.payload",
-    @"some": @"more",
-    @"JSON": @"keys",
-    @"and": @"stuff",
-};
+NSArray *anotherArray = [NSArray arrayWithObjects:@"foo", @"bar", nil];
 ```
 
-## Categories
+## Rule of Threes
 
- * Categories should be named for the sort of functionality they provide. Don't create umbrella categories.
- * Category methods should always be prefixed.
- * If you need to expose private methods for subclasses or unit testing, create a class extension named `Class+Private`.
+### Protocol Conformation
+
+Put all conformation declarations on one line. 
+**Preferred:**
+
+```objc
+@interface ViewController : UIViewController <KitchenDelegate, InfiniteChipotleDelegate, LunchFinderDelegate, BeerDelegate>
+```
+
+**Not:** (who doesn't love alphabetizing?)
+
+```objc
+@interface ViewController : UIViewController
+<BeerDelegate,
+InfiniteChipotleDelegate,
+KitchenDelegate,
+LunchFinderDelegate>
+```
+
+## Unnecessary code
+
+Advances in Clang and Objective-C have made certain conventions obsolete. 99% of the time, we should **no longer use the following**:
+
+- `@synthesize`d properties (except for readonly properties as of Xcode 6)
+- explicitly declared ivars
+- forward declaration of private methods
+    - for readability's sake, private methods should always be grouped under `#pragma mark - Private Methods`
+    - please see the [file organization](#file-organization) page for more on this
+
+## File Organization
+
+Objective-C files should generally be organized in the following order. See the included `SampleViewController.h` and `SampleViewController.m` to see these rules in practice.
+
+### Header Files (`.h`)
+
+- Framework `@import`s
+- Application header `#import`s (`"..."`)
+
+    - These should be used judiciously. Consider forward class declarations and only import in `.m` or `_Private.h` if you can. This can improve build times by reducing the redundancy of header imports.
+- forward `@class` declarations
+- forward `@protocol` declarations
+- `typedef`ed enumerations and block signatures
+- `OBJC_EXTERN`ed constant declarations
+- `@interface` - protocol conformations should be used here judiciously — consider using in `.m` or `_Private.h`; see also [Rule of Three](#rule-of-three))
+
+- **Nothing should be public unless it explicitly needs to be used by other classes**
+
+- `@property` declarations
+    - cluster similar properties into groups separated by a newline
+        - `UIView` subclasses
+        - Other `NSObject` subclasses
+        - `NSLayoutConstraint`s
+        - delegate references
+- class method declarations
+- public interface method declarations
+- `IBOutlet`/`IBAction` should never appear in `.h` files!
+- `@protocol` definitions
+    - `@required` and `@optional` only necessary if both types of methods are present
+
+#### When to use a `_Private.h` file
+
+When you have a base class of which you have multiple subclasses. For example:
+
+- Separate iPad and iPhone versions of a class
+- If the subclasses need to inherit private properties and methods
+- You don't want to expose items in the public interface of the base class
+
+What to do:
+
+1. Create a new class extension file
+2. Name it YourClass_Private.h
+3. Put all your shared interface elements in that private interface
+4. Import that interface file in your subclasses' implementation files
+
+An example structure:
+
+- Base Class
+    - `MainViewController.m`
+    - `MainViewController.h`
+- Private Interface
+    - `MainViewController_Private.h`
+- iPhone subclass - .m `#import`s `MainViewController_Private.h`
+    - `MainViewController~iphone.m`
+    - `MainViewController~iphone.h`
+    - `MainViewController~iphone.xib`
+- iPad subclass - .m `#import`s `MainViewController_Private.h`
+    - `MainViewController~ipad.m`
+    - `MainViewController~ipad.h`
+    - `MainViewController~ipad.xib`
+
+### Implementation Files (`.m`)
+
+- framework `@import`s
+
+- application header imports
+    - cluster different kinds of imports together, with comments if many types are present
+        - view controllers
+        - custom views/cells
+        - data model/managers
+        - categories (always in their own files, never in-line)
+        - constant files
+        - third party software
+- `typedef`ed `enum`s, block signatures
+- macros
+- constant definitions
+- `@interface` extension
+    - Protocol conformations not needed by subclasses. See also: [Rule of Three](#rule-of-three)
+        - See [Header file](#header-files-h) section
+    - `IBAction` method declarations
+        - These are optional, and should be included only for clarity
+    - Not necessary to declare delegate/private methods or property overrides
+- `@implementation`
+    - organize sections with `#pragma mark -`
+    - `@synthesize` statements
+        - only use when necessary, such as with read-only properties
+    - class methods
+    - `init` & `dealloc`
+    - view lifecycle
+    - notification handlers
+    - delegate callbacks
+    - `IBAction` handlers
+    - overridden property getters/setters
+        - getter and setter for same property should appear consecutively
+    - public interface methods
+    - private interface methods
